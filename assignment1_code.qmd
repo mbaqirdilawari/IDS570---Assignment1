@@ -1,0 +1,256 @@
+---
+title: "assignment1_code"
+format: html
+editor: visual
+---
+
+Importing Libraries:
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(tidytext)
+library(ggplot2)
+library(forcats)
+library(tibble)
+library(scales)
+```
+
+```{r}
+
+file_a <- "texts/A07594__Circle_of_Commerce.txt"
+file_b <- "texts/B14801__Free_Trade.txt"
+
+
+text_a <- read_file(file_a)
+text_b <- read_file(file_b)
+
+
+texts <- tibble(
+  doc_title = c("Text A", "Text B"),
+  text = c(text_a, text_b)
+)
+
+texts
+```
+
+```{r}
+
+data("stop_words")
+
+custom_stopwords <- tibble(
+  word = c(
+    "vnto", "haue", "doo", "hath", "bee", "ye", "thee"
+  )
+)
+
+all_stopwords <- bind_rows(stop_words, custom_stopwords) %>%
+  distinct(word)
+
+all_stopwords %>% slice(1:10)
+```
+
+### **I. Create a diagnostics table:**
+
+```{r}
+words <- texts %>%
+  unnest_tokens(word, text) %>%
+  mutate(word = str_to_lower(word))
+
+words
+```
+
+I wanted to check if I have correctly taken Text A and Text B both into account:
+
+```{r}
+words %>% count(doc_title)
+```
+
+```{r}
+total_tokens_table <- words %>%
+  count(doc_title, name = "total_tokens")
+
+tokens_after_table <- words %>%
+  anti_join(all_stopwords, by = "word") %>%
+  count(doc_title, name = "tokens_after_stopwords")
+
+corpus_diagnostics <- total_tokens_table %>%
+  left_join(tokens_after_table, by = "doc_title") %>%
+  mutate(
+    tokens_removed = total_tokens - tokens_after_stopwords,
+    percent_removed = round(100 * tokens_removed / total_tokens, 1)
+  )
+
+corpus_diagnostics
+```
+
+- What percentage of each document was removed as stopwords?
+
+  Text A had 56.6% of its tokens removed, from 33,889 to 14,694.\
+  Text B had 59.8% removed, from 19,922 to 8,004.
+
+- Is the percentage approximately the same for the two documents?
+
+  Yes, the two percentages are similar, differing by only about 3.2 percentage points (56.6% vs. 59.8%), despite Text A being nearly twice as long as Text B.
+
+- What do these numbers tell you about how substantially stopword removal has transformed the texts that we will analyze?
+
+  Since more than half of each document's tokens were removed, stopword removal is a major transformation. It can be said that majority of each text's raw word count was made up of common connective and function words rather than distinctive ones which are meaningful for understanding what the text is focused on. What remains after cleaning is a much smaller core of each document's real vocabulary.
+
+### **II. Compare the most frequent words, before and after stopword removal**
+
+```{r}
+word_counts_before <- words %>%
+  count(doc_title, word, sort = TRUE)
+
+word_counts_before
+```
+
+```{r}
+plot_n_words_before <- 15
+
+word_comparison_before <- word_counts_before %>%
+  pivot_wider(
+    names_from = doc_title,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  mutate(max_n = pmax(`Text A`, `Text B`)) %>%
+  arrange(desc(max_n))
+
+word_plot_data_before <- word_comparison_before %>%
+  slice_head(n = plot_n_words_before) %>%
+  pivot_longer(
+    cols = c(`Text A`, `Text B`),
+    names_to = "doc_title",
+    values_to = "n"
+  ) %>%
+  mutate(word = fct_reorder(word, n, .fun = max))
+
+ggplot(word_plot_data_before, aes(x = n, y = word)) +
+  geom_col() +
+  facet_wrap(~ doc_title, scales = "free_x") +
+  labs(
+    title = "Most frequent words (before stopword removal)",
+    subtitle = paste0(
+      "Top ", plot_n_words_before,
+      " words by maximum frequency across both texts"
+    ),
+    x = "Word frequency",
+    y = NULL
+  ) +
+  theme_minimal()
+```
+
+```{r}
+word_counts_after <- words %>%
+  anti_join(all_stopwords, by = "word") %>%
+  count(doc_title, word, sort = TRUE)
+
+word_counts_after
+```
+
+```{r}
+plot_n_words_after <- 15
+
+word_comparison_after <- word_counts_after %>%
+  pivot_wider(
+    names_from = doc_title,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  mutate(max_n = pmax(`Text A`, `Text B`)) %>%
+  arrange(desc(max_n))
+
+word_plot_data_after <- word_comparison_after %>%
+  slice_head(n = plot_n_words_after) %>%
+  pivot_longer(
+    cols = c(`Text A`, `Text B`),
+    names_to = "doc_title",
+    values_to = "n"
+  ) %>%
+  mutate(word = fct_reorder(word, n, .fun = max))
+
+ggplot(word_plot_data_after, aes(x = n, y = word)) +
+  geom_col() +
+  facet_wrap(~ doc_title, scales = "free_x") +
+  labs(
+    title = "Most frequent words (after stopword removal)",
+    subtitle = paste0(
+      "Top ", plot_n_words_after,
+      " words by maximum frequency across both texts"
+    ),
+    x = "Word frequency",
+    y = NULL
+  ) +
+  theme_minimal()
+```
+
+- What dominates the frequency results before stopword removal?
+
+  Before stopword removal, the top 15 words in both Text A and Text B are almost entirely grammatical fillers. For example, "the," "of," "and," "in," "to," "is," "that," "a". These are words that carry no information about what either text is actually about, but are just structural glue used in English writing.
+
+- What becomes visible after stopword removal?
+
+  After removing stopwords, the top words shift to content-specific vocabulary tied directly to the subject matter: "trade," "exchange," "merchants," "commodities," "money," "kingdome". These are words that clearly signal that they are context specific texts and not fillers.
+
+- Does removing stopwords make it easier to say something about the **subject matter** of these texts? Give at least two specific examples from your results.
+
+  Yes, it becomes noticeably easier to say something about subject matter. Before removing stopwords, you could not tell what either text was about at all just from the top words, since they were all generic fillers. But after removal, words like "trade" and "exchange" appearing at the very top of both documents make it immediately clear these texts are focused on commerce and economics.
+
+- What information about the texts becomes less visible when we remove stopwords?
+
+  What becomes less visible after removal is the grammatical or structural style of the writing. By looking into connective words like "and," "or," "which," "that", you can see how ideas are linked together, sentence to sentence, and losing them means you can no longer observe things like sentence complexity or writing style.
+
+### **III. Test the effect of our custom stopword list**
+
+```{r}
+words_standard_only <- words %>%
+  anti_join(stop_words, by = "word")
+
+word_counts_standard_only <- words_standard_only %>%
+  count(doc_title, word, sort = TRUE)
+
+plot_n_words_standard <- 15
+
+word_comparison_standard <- word_counts_standard_only %>%
+  pivot_wider(
+    names_from = doc_title,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  mutate(max_n = pmax(`Text A`, `Text B`)) %>%
+  arrange(desc(max_n))
+
+top15_standard_only <- word_comparison_standard %>%
+  slice_head(n = plot_n_words_standard)
+
+top15_standard_only
+```
+
+- Identify at least three words whose presence helps explain why we created a custom stopword list.
+
+  "haue" (163 in Text A, 86 in Text B) \
+  "bee" (108 in Text A, 51 in Text B)\
+  "hath" (87 in Text A, 52 in Text B) \
+  All three words showed up in the "Top 15" list, once I stopped filtering the custom Early Modern words. These are exactly the words which "custom_stopwords" list was built to catch.
+
+- Why might these words be unhelpful if our goal is to identify the subject matter of the documents?
+
+  These are just old-fashioned versions of basic grammatical verbs, words used constantly in almost any sentence, no matter what it's about. Knowing a text uses "haue" a lot does not tell us whether it's about a certain topic, for example, trade, farming, or religion.
+
+- Can you imagine a research question for which one of these words **would** be useful evidence?
+
+  If the research question was about language and spelling itself rather than subject matter, these words could be useful. For example, "How did English spelling conventions for common verbs (like 'have' to 'haue', 'hath' to 'has') change over the 16th and 17th centuries?" Here, the frequency of "haue" or "hath" becomes the evidence I would want to study, rather than noise to remove.
+
+- Based on this experiment, explain why there is no single, universally “correct” stopword list.
+
+  This experiment shows that whether a word counts as a "stopword" depends entirely on what question we are asking, and not on some fixed property of the word itself. For a study about trade and commerce, "haue" and "hath" are irrelevant noise worth removing. \
+  However, for a study about historical spelling or language change, those same exact words become the main subject of interest. Since different research questions need different words removed or kept, no single universal stopword list can work for every project. The list has to be built around the specific question being asked.
+
+### **Final Reflection**
+
+For this specific analysis, the student is only partly right. The words we removed genuinely were unimportant for our research question, since more than half of each document's tokens (56.6% for Text A, 59.8% for Text B) were filler words like "the," "of," "and" that added no insight into the subject matter, and removing them revealed meaningful content words like "trade" and "exchange" instead. \
+However, "unimportant" is not a fixed property of a word. It depends entirely on what you're studying, and that's exactly what our custom stopword experiment showed. When we chose to keep old English words like "haue," "bee," and "hath" instead of filtering them out, they appeared prominently in our results. This means that the same word can be irrelevant noise in one analysis and genuinely important evidence in another. For example, in a study about historical spelling patterns or language change. So the claim only holds for this particular text and this particular question. But for other types of text, such as poetry or legal documents, the same "unimportant" words might carry emphasis or patterns that are actually vital to what is being studied. Therefore, stopword removal is never just data cleaning, but a judgment call that has to be made differently for each new data set or research question.
